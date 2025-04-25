@@ -1,0 +1,110 @@
+import paramiko
+from scp import SCPClient
+import time
+
+class VPSManager:
+    def __init__(self, hostname, port, username, key_path):
+        self.hostname = hostname
+        self.port = port
+        self.username = username
+        self.key_path = key_path
+        self.ssh = None
+        self.scp = None
+
+    def connect(self):
+        """建立SSH连接"""
+        try:
+            # 创建SSH客户端
+            self.ssh = paramiko.SSHClient()
+            self.ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            
+            # 加载私钥
+            key = paramiko.RSAKey.from_private_key_file(self.key_path)
+            
+            # 建立连接
+            self.ssh.connect(
+                hostname=self.hostname,
+                port=self.port,
+                username=self.username,
+                pkey=key
+            )
+            print("✅ 成功连接到VPS")
+            
+            # 初始化SCP客户端
+            self.scp = SCPClient(self.ssh.get_transport())
+            
+        except Exception as e:
+            print(f"❌ 连接失败: {str(e)}")
+            raise
+
+    def execute_command(self, command):
+        """执行远程命令"""
+        if not self.ssh:
+            print("⚠️ 请先建立连接")
+            return None
+        
+        stdin, stdout, stderr = self.ssh.exec_command(command)
+        output = stdout.read().decode()
+        error = stderr.read().decode()
+        
+        if error:
+            print(f"❌ 命令执行出错:\n{error}")
+        else:
+            print(f"📤 命令输出:\n{output}")
+        
+        return output
+
+    def transfer_file(self, local_path, remote_path):
+        """上传文件"""
+        if not self.scp:
+            print("⚠️ 请先建立连接")
+            return False
+            
+        try:
+            self.scp.put(local_path, remote_path)
+            print(f"📥 文件已上传至 {remote_path}")
+            return True
+        except Exception as e:
+            print(f"❌ 文件上传失败: {str(e)}")
+            return False
+
+    def close(self):
+        """关闭连接"""
+        if self.scp:
+            self.scp.close()
+        if self.ssh:
+            self.ssh.close()
+        print("🔌 连接已关闭")
+
+# 使用示例
+if __name__ == "__main__":
+    # 配置信息（建议存储在环境变量中）
+    config = {
+        "hostname": "your.vps.ip",
+        "port": 22,
+        "username": "root",
+        "key_path": "~/.ssh/your_private_key"
+    }
+
+    vps = VPSManager(**config)
+    
+    try:
+        vps.connect()
+        
+        # 示例1：更新系统
+        vps.execute_command("sudo apt update && sudo apt upgrade -y")
+        
+        # 示例2：创建目录
+        vps.execute_command("mkdir -p ~/my_scripts")
+        
+        # 示例3：上传文件
+        vps.transfer_file("local_script.sh", "~/my_scripts/remote_script.sh")
+        
+        # 示例4：设置执行权限
+        vps.execute_command("chmod +x ~/my_scripts/remote_script.sh")
+        
+        # 示例5：执行脚本
+        vps.execute_command("~/my_scripts/remote_script.sh")
+        
+    finally:
+        vps.close()
